@@ -1,25 +1,66 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import 'primary_button.dart';
 
-class LoadingView extends StatelessWidget {
-  const LoadingView({super.key, this.message = 'Loading...'});
+class LoadingView extends StatefulWidget {
+  const LoadingView({
+    super.key,
+    this.message = 'Loading...',
+    this.slowMessage = 'The server may be waking up. This can take up to a minute.',
+    this.slowAfter = const Duration(seconds: 5),
+  });
 
   final String message;
+  final String slowMessage;
+  final Duration slowAfter;
+
+  @override
+  State<LoadingView> createState() => _LoadingViewState();
+}
+
+class _LoadingViewState extends State<LoadingView> {
+  Timer? _timer;
+  bool _slow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(widget.slowAfter, () => setState(() => _slow = true));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Center(
       key: const Key('loading_view'),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 16),
-          Text(message, style: AppTextStyles.body),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(widget.message, style: AppTextStyles.body, textAlign: TextAlign.center),
+            if (_slow) ...[
+              const SizedBox(height: 8),
+              Text(
+                widget.slowMessage,
+                key: const Key('loading_slow_hint'),
+                style: AppTextStyles.body,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

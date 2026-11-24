@@ -117,7 +117,7 @@ class FakeLearningRepository implements LearningRepository {
     if (gate != null) await gate!.future;
     if (failuresBeforeSuccess > 0) {
       failuresBeforeSuccess--;
-      throw const DataException('Could not read "assets/data/lab_v4.json".');
+      throw const DataException('Could not reach the server. Check your internet connection.');
     }
     return value;
   }

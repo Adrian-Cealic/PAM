@@ -1,51 +1,44 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:learning_app/core/errors/data_exception.dart';
-import 'package:learning_app/data/datasources/learning_local_data_source.dart';
+import 'package:learning_app/core/network/api_config.dart';
+import 'package:learning_app/data/datasources/learning_remote_data_source.dart';
 import 'package:learning_app/data/repositories/learning_repository_impl.dart';
 
-class DiskAssetBundle extends CachingAssetBundle {
-  DiskAssetBundle(this.files);
-
-  final Map<String, String> files;
-  int reads = 0;
-
-  @override
-  Future<ByteData> load(String key) async {
-    reads++;
-    final content = files[key];
-    if (content == null) throw FlutterError('Unable to load asset: "$key".');
-    return ByteData.sublistView(utf8.encode(content));
-  }
+LearningRepositoryImpl repositoryFor(MockClient client) {
+  return LearningRepositoryImpl(LearningRemoteDataSource(client: client, config: const ApiConfig()));
 }
 
-LearningRepositoryImpl repositoryFor(DiskAssetBundle bundle) {
-  return LearningRepositoryImpl(LearningLocalDataSource(bundle: bundle, simulatedLatency: Duration.zero));
+MockClient serving({required Object? feed, required Object? details}) {
+  return MockClient((request) async {
+    final body = switch (request.url.path) {
+      '/lab2026/v4/feed' => feed,
+      '/lab2026/v4/feed/details' => details,
+      _ => null,
+    };
+    if (body == null) return http.Response('not found', 404);
+    return http.Response.bytes(utf8.encode(body is String ? body : jsonEncode(body)), 200);
+  });
 }
 
 void main() {
-  const asset = LearningLocalDataSource.defaultAssetPath;
-  final bundledJson = File(asset).readAsStringSync();
-  final original = jsonDecode(File('../lab v4.json').readAsStringSync()) as Map<String, dynamic>;
-
-  test('bundled asset is byte-identical to the lab data file', () {
-    expect(bundledJson, File('../lab v4.json').readAsStringSync());
-  });
+  final fixture = jsonDecode(File('test/fixtures/lab_v4.json').readAsStringSync()) as Map<String, dynamic>;
+  final rawHome = fixture['homePage'] as Map<String, dynamic>;
+  final rawDetails = fixture['courseOverviewPage'] as Map<String, dynamic>;
 
   group('oracle: parsed entities match the raw JSON field by field', () {
-    late final repository = repositoryFor(DiskAssetBundle({asset: bundledJson}));
+    late final repository = repositoryFor(serving(feed: rawHome, details: rawDetails));
 
     test('course and every lesson', () async {
       final overview = await repository.getCourseOverview();
-      final rawPage = original['courseOverviewPage'] as Map<String, dynamic>;
-      final rawCourse = rawPage['course'] as Map<String, dynamic>;
+      final rawCourse = rawDetails['course'] as Map<String, dynamic>;
       final rawLessons = (rawCourse['lessons'] as List).cast<Map<String, dynamic>>();
 
-      expect(overview.screenTitle, rawPage['navigation']['title']);
+      expect(overview.screenTitle, rawDetails['navigation']['title']);
       expect(overview.course.title, rawCourse['title']);
       expect(overview.course.duration, rawCourse['duration']);
       expect(overview.course.lessonCount, rawCourse['lessonCount']);
@@ -57,8 +50,8 @@ void main() {
         [for (final t in overview.course.tabs) t.id],
         [for (final t in rawCourse['tabs']['items'] as List) t['id']],
       );
-      expect(overview.price.label, rawPage['actions']['price']['label']);
-      expect(overview.enroll.enabled, rawPage['actions']['enroll']['enabled']);
+      expect(overview.price.label, rawDetails['actions']['price']['label']);
+      expect(overview.enroll.enabled, rawDetails['actions']['enroll']['enabled']);
 
       expect(overview.course.lessons.length, rawLessons.length);
       final byId = {for (final l in overview.course.lessons) l.id: l};
@@ -77,17 +70,17 @@ void main() {
 
     test('home page and every learning plan item', () async {
       final home = await repository.getHomeData();
-      final raw = original['homePage'] as Map<String, dynamic>;
-      final rawItems = (raw['learningPlan']['items'] as List).cast<Map<String, dynamic>>();
+      final rawItems = (rawHome['learningPlan']['items'] as List).cast<Map<String, dynamic>>();
 
-      expect(home.header.greeting, raw['header']['greeting']);
-      expect(home.header.hasUnreadNotifications, raw['header']['notification']['hasUnread']);
-      expect(home.learnedToday.learnedMinutes, raw['learnedToday']['learnedMinutes']);
-      expect(home.learnedToday.goalMinutes, raw['learnedToday']['goalMinutes']);
-      expect(home.learnedToday.progress, raw['learnedToday']['progress']);
-      expect(home.myCourses.actionLabel, raw['myCourses']['actionLabel']);
-      expect(home.learningPrompt.actionLabel, raw['learningPrompt']['actionLabel']);
-      expect(home.meetup.subtitle, raw['meetup']['subtitle']);
+      expect(home.header.greeting, rawHome['header']['greeting']);
+      expect(home.header.subtitle, rawHome['header']['subtitle']);
+      expect(home.header.hasUnreadNotifications, rawHome['header']['notification']['hasUnread']);
+      expect(home.learnedToday.learnedMinutes, rawHome['learnedToday']['learnedMinutes']);
+      expect(home.learnedToday.goalMinutes, rawHome['learnedToday']['goalMinutes']);
+      expect(home.learnedToday.progress, rawHome['learnedToday']['progress']);
+      expect(home.myCourses.actionLabel, rawHome['myCourses']['actionLabel']);
+      expect(home.learningPrompt.actionLabel, rawHome['learningPrompt']['actionLabel']);
+      expect(home.meetup.subtitle, rawHome['meetup']['subtitle']);
 
       expect(home.learningPlan.items.length, rawItems.length);
       for (var i = 0; i < rawItems.length; i++) {
@@ -100,36 +93,37 @@ void main() {
   });
 
   group('errors', () {
-    test('missing asset becomes DataException', () {
-      expect(repositoryFor(DiskAssetBundle({})).getHomeData(), throwsA(isA<DataException>()));
+    test('HTTP error becomes DataException', () {
+      final client = MockClient((_) async => http.Response('boom', 500));
+      expect(repositoryFor(client).getHomeData(), throwsA(isA<DataException>()));
     });
 
     test('malformed JSON becomes DataException', () {
-      expect(repositoryFor(DiskAssetBundle({asset: '{"homePage": '})).getHomeData(), throwsA(isA<DataException>()));
+      expect(repositoryFor(serving(feed: '{"header": ', details: '{}')).getHomeData(), throwsA(isA<DataException>()));
     });
 
-    test('missing section becomes DataException', () {
-      expect(repositoryFor(DiskAssetBundle({asset: '{}'})).getCourseOverview(), throwsA(isA<DataException>()));
+    test('empty object (missing fields) becomes DataException', () {
+      expect(repositoryFor(serving(feed: '{}', details: '{}')).getCourseOverview(), throwsA(isA<DataException>()));
     });
 
     test('wrong field type becomes DataException', () {
-      final broken = jsonDecode(bundledJson) as Map<String, dynamic>;
-      broken['courseOverviewPage']['course']['lessons'][0]['durationSeconds'] = '268';
-      expect(
-        repositoryFor(DiskAssetBundle({asset: jsonEncode(broken)})).getCourseOverview(),
-        throwsA(isA<DataException>()),
-      );
+      final broken = jsonDecode(jsonEncode(rawDetails)) as Map<String, dynamic>;
+      broken['course']['lessons'][0]['durationSeconds'] = '268';
+      expect(repositoryFor(serving(feed: rawHome, details: broken)).getCourseOverview(), throwsA(isA<DataException>()));
     });
 
-    test('document is read once on success and re-read after a failure', () async {
-      final bundle = DiskAssetBundle({});
-      final repository = repositoryFor(bundle);
+    test('a failed call does not poison the next one', () async {
+      var calls = 0;
+      final client = MockClient((request) async {
+        calls++;
+        if (calls == 1) return http.Response('boom', 503);
+        return http.Response.bytes(utf8.encode(jsonEncode(rawHome)), 200);
+      });
+      final repository = repositoryFor(client);
       await expectLater(repository.getHomeData(), throwsA(isA<DataException>()));
-
-      bundle.files[asset] = bundledJson;
-      await repository.getHomeData();
-      await repository.getCourseOverview();
-      expect(bundle.reads, 2);
+      final home = await repository.getHomeData();
+      expect(home.header.greeting, rawHome['header']['greeting']);
+      expect(calls, 2);
     });
   });
 }

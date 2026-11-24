@@ -21,8 +21,6 @@ class HomeCubit extends Cubit<HomeState> {
     
     try {
       final data = await _repository.getHomeData();
-      debugPrint('Salut: ${data.header.greeting}');
-      debugPrint('Planuri: ${data.learningPlan.items.map((item) => item.title).toList()}');
       if (isClosed) return;
       emit(HomeState(status: HomeStatus.success, data: data));
       

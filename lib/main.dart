@@ -2,22 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import 'app.dart';
-import 'data/datasources/learning_local_data_source.dart';
+import 'core/network/api_config.dart';
+import 'data/datasources/learning_remote_data_source.dart';
 import 'data/repositories/favorites_repository_impl.dart';
 import 'data/repositories/learning_repository_impl.dart';
 
-const _dataAsset = String.fromEnvironment('DATA_ASSET', defaultValue: LearningLocalDataSource.defaultAssetPath);
+const _apiConfig = ApiConfig(
+  baseUrl: String.fromEnvironment('API_BASE_URL', defaultValue: ApiConfig.defaultBaseUrl),
+  version: String.fromEnvironment('API_VERSION', defaultValue: ApiConfig.defaultVersion),
+);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final dataSource = LearningLocalDataSource(assetPath: _dataAsset);
+  final httpClient = http.Client();
 
   runApp(
     LearningApp(
-      learningRepository: LearningRepositoryImpl(dataSource),
+      learningRepository: LearningRepositoryImpl(LearningRemoteDataSource(client: httpClient, config: _apiConfig)),
       favoritesRepository: FavoritesRepositoryImpl(),
-      httpClient: http.Client(),
+      httpClient: httpClient,
     ),
   );
 }

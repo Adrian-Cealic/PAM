@@ -1,5 +1,5 @@
 name: learning_app
-description: "Laborator 3 PAM: aplicatie de cursuri cu Cubit si date JSON incarcate asincron."
+description: "Laborator 4 PAM: aplicatie de cursuri cu Clean Architecture, Cubit si date din REST API."
 publish_to: 'none'
 version: 0.1.0+1
 
@@ -23,9 +23,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
-  assets:
-    - assets/data/
 
   fonts:
     - family: Poppins
